@@ -60,7 +60,8 @@ enum EMatid { ENone,
 const int global_nthread = 8;
 
 REAL pseudotime = 0;
-const REAL maxdisp = 0.1;
+// const REAL maxdisp = 0.1;
+const REAL maxdisp = 0.05;
 auto applied_disp = [](const TPZVec<REAL> &coord, TPZVec<STATE> &rhsVal, TPZFMatrix<STATE> &matVal) {
   rhsVal[0] = 0.0;
   rhsVal[1] = - maxdisp * pseudotime * 1.e11; // Bignumber
@@ -97,14 +98,26 @@ int main() {
   TPZLogger::InitializePZLOG();
 #endif
 
-  const int pord = 1;
-  const REAL E = 20.8e3, nu = 0.3;
-  const REAL Gc = 0.5, l0 = 0.03;  
+  const int whichprob = 1;
+
+  int pord = 1;
+  REAL E = 20.8e3, nu = 0.3;
+  REAL Gc = 0.5, l0 = 0.03;  
+
+  if(whichprob == 1){
+    E = 20.e6;
+    nu = 0.3;
+    Gc = 1.0;
+    l0 = 0.06;
+  }
 
   bool isReadFromGmsh = true;
   TPZGeoMesh* gmesh = nullptr;
   if (isReadFromGmsh) {
-    gmesh = ReadMeshFromGmsh("../gmsh_meshes/3-pt-bending-disp-surf-topmat.msh");
+    if (whichprob == 0)
+      gmesh = ReadMeshFromGmsh("../gmsh_meshes/3-pt-bending-disp-surf-topmat.msh");
+    else if (whichprob == 1)
+      gmesh = ReadMeshFromGmsh("../gmsh_meshes/bittencourt.msh");
   } else {
     int ndivx = 25, ndivy = 50;
     gmesh = CreateGMesh(ndivx, ndivy);
@@ -308,6 +321,10 @@ TPZMultiphysicsCompMesh* CreateElasticityMultiphysicsMesh(TPZManVector<TPZCompMe
   BCCondSurf->SetForcingFunctionBC(applied_disp,2);
   mp_cmesh->InsertMaterialObject(BCCondSurf);
 
+  val1(1,1) = mat->BigNumber();
+  auto* BCCondPoint = mat->CreateBC(mat, EPtDispY, mixed, val1, val2);
+  BCCondPoint->SetForcingFunctionBC(applied_disp,2);
+  mp_cmesh->InsertMaterialObject(BCCondPoint);
 
 
   mp_cmesh->ApproxSpace().Style() = TPZCreateApproximationSpace::EMultiphysics;
@@ -375,8 +392,8 @@ TPZCompMesh* CreateElasticityAtomicMesh(TPZGeoMesh* gmesh, const int pord) {
 
   val1.Zero();
   val2[1] = -0.05;
-  // auto* BCCondPoint = mat->CreateBC(mat, EPtDispY, diri, val1, val2);
-  // cmesh->InsertMaterialObject(BCCondPoint);
+  auto* BCCondPoint = mat->CreateBC(mat, EPtDispY, diri, val1, val2);
+  cmesh->InsertMaterialObject(BCCondPoint);
   auto* BCCondSurf = mat->CreateBC(mat, EDispY, mixed, val1, val2);
   cmesh->InsertMaterialObject(BCCondSurf);
   
@@ -477,8 +494,8 @@ TPZCompMesh* CreateH1CMesh(TPZGeoMesh* gmesh, const int pord, TElasticity2DAnaly
 
   val1.Zero();
   val2[1] = -0.05;
-  // auto* BCCondPoint = mat->CreateBC(mat, EPtDispY, diri, val1, val2);
-  // cmesh->InsertMaterialObject(BCCondPoint);
+  auto* BCCondPoint = mat->CreateBC(mat, EPtDispY, diri, val1, val2);
+  cmesh->InsertMaterialObject(BCCondPoint);
   auto* BCCondSurf = mat->CreateBC(mat, EDispY, diri, val1, val2);
   cmesh->InsertMaterialObject(BCCondSurf);
 
