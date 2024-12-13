@@ -45,6 +45,7 @@ void TPZElasticityPhaseField::Contribute(const TPZVec<TPZMaterialDataT<STATE>> &
   
   // Call the contribute method of father class TPZElasticity2D
   TPZFMatrix<STATE> temp_ek(ek.Rows(), ek.Cols());
+  temp_ek.Zero();
   TPZElasticity2D::Contribute(datavec[0], weight, temp_ek, ef);
   
   // Get the value of the phase field material
