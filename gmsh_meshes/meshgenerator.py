@@ -47,10 +47,30 @@ third_rec_tag = recfrag[1][0][2][1]
 # exit()
 gmsh.model.occ.synchronize()
 
+# Create a rectangle starting at (5,0) and ending at (8,2)
+rectangle2 = gmsh.model.occ.addRectangle(5.5, 0, 0, 2.4, 1.5)
+# Merge this rectangle to second_rec_tag
+recfrag2 = gmsh.model.occ.fragment([(2, second_rec_tag)], [(2, rectangle2)])
+first_rec2 = recfrag2[1][0][0][1]
+second_rec2 = recfrag2[1][0][1][1]
+
+gmsh.model.occ.synchronize()
+
+# Create a rectangle starting at (5,0) and ending at (8,2)
+rectangle3 = gmsh.model.occ.addRectangle(5.0, 7.5, 0, 2.9, 0.5)
+# Merge this rectangle to second_rec_tag
+recfrag3 = gmsh.model.occ.fragment([(2, first_rec2)], [(2, rectangle3)])
+first_rec3 = recfrag3[1][0][0][1]
+second_rec3 = recfrag3[1][0][1][1]
+
+gmsh.model.occ.synchronize()
+
+
 # Create the triangular notch
+notchsize = 0.025
 notch_points = [
-    (notch_position - 0.1, 0, 0),  # Left point of the base
-    (notch_position + 0.1, 0, 0),  # Right point of the base
+    (notch_position - notchsize, 0, 0),  # Left point of the base
+    (notch_position + notchsize, 0, 0),  # Right point of the base
     (notch_position, notch_length, 0)        # Top point of the triangle
 ]
 
@@ -77,7 +97,7 @@ hole2 = gmsh.model.occ.addDisk(hole_center_x, hole_center_y2, 0, hole_radius, ho
 hole3 = gmsh.model.occ.addDisk(hole_center_x, hole_center_y3, 0, hole_radius, hole_radius)
 
 # Cut the notch and hole from the rectangle
-gmsh.model.occ.cut([(2, second_rec_tag)], [(2, notch), (2, hole), (2, hole2), (2, hole3)], removeObject=True, removeTool=True)
+gmsh.model.occ.cut([(2, first_rec3)], [(2, notch), (2, hole), (2, hole2), (2, hole3)], removeObject=True, removeTool=True)
 
 # Synchronize the CAD kernel with the Gmsh model
 gmsh.model.occ.synchronize()
@@ -109,10 +129,10 @@ gmsh.model.setPhysicalName(0, top_middle_group, "ptdispy")
 gmsh.model.occ.synchronize()
 
 # Add a physical group for the 2D domain
-domain_group = gmsh.model.addPhysicalGroup(2, [first_rec_tag,third_rec_tag])
+domain_group = gmsh.model.addPhysicalGroup(2, [first_rec_tag,third_rec_tag,second_rec2,second_rec3])
 gmsh.model.setPhysicalName(2, domain_group, "dom")
 
-domain_group_frac = gmsh.model.addPhysicalGroup(2, [second_rec_tag])
+domain_group_frac = gmsh.model.addPhysicalGroup(2, [first_rec3])
 gmsh.model.setPhysicalName(2, domain_group_frac, "domfrac")
 
 # Synchronize the CAD kernel with the Gmsh model
@@ -123,7 +143,7 @@ gmsh.fltk.run()
 
 # Define a field for mesh refinement
 field_id = gmsh.model.mesh.field.add("Box")
-gmsh.model.mesh.field.setNumber(field_id, "VIn", 0.05)  # Target mesh size inside the box
+gmsh.model.mesh.field.setNumber(field_id, "VIn", 0.03)  # Target mesh size inside the box
 gmsh.model.mesh.field.setNumber(field_id, "VOut", 1)   # Target mesh size outside the box
 gmsh.model.mesh.field.setNumber(field_id, "XMin", 3)
 gmsh.model.mesh.field.setNumber(field_id, "XMax", 8)

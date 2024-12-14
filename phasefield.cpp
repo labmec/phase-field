@@ -90,6 +90,17 @@ void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF,
 void SetPFAndElasMaterialPointer(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF);
 void TransferFromMultiBothMeshes(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF);
 
+void PrintTime(TPZSimpleTimer& timer, const std::string& message) {
+  double postProcTime = timer.ReturnTimeDouble() / 1000.0;
+  int minutes = static_cast<int>(postProcTime) / 60;
+  double seconds = postProcTime - minutes * 60;
+  if(minutes == 0) {
+    std::cout << message + " time = " << std::fixed << std::setprecision(1) << seconds << " seconds" << std::endl;    
+  }
+  else {
+    std::cout << message + " time = " << minutes << " minutes and " << std::fixed << std::setprecision(1) << seconds << " seconds" << std::endl;
+  }
+}
 
 std::string plotfile = "post_pfelas";
 int main() {
@@ -210,12 +221,11 @@ void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF,
 
   for (int t = 0; t < ntimesteps; t++) {
     REAL time = (REAL)(t+1) / ntimesteps;
-    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(6) << time << " ********************" << std::endl;
+    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(4) << time << " ********************" << std::endl;
     elaspffrac->SetTime(time);
     elaspf->SetTime(time);
     pseudotime = time;
     SolveStaggeredProblem(anElas, anPF);
-    std::cout << "--------- PostProcess ---------" << std::endl;
     // TransferFromMultiBothMeshes(mp_cmeshElas, mp_cmeshPF);
     PrintResults(anElas, mp_cmeshElas);
   }
@@ -277,8 +287,7 @@ void SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF) {
     std::cout << "WARNING! Maximum number of staggered iterations. Considering as converged and continuing" << std::endl;
 
   }
-
-  std::cout << "Staggered iteration time: " << time_stag.ReturnTimeDouble() / 1000.0 << " seconds." << std::endl;
+  PrintTime(time_stag, "Staggered Iteration");  
 
 }
 
@@ -530,7 +539,7 @@ void SolveProblemDirect(TPZLinearAnalysis& an, TPZCompMesh* cmesh) {
 }
 
 void PrintResults(TPZLinearAnalysis& an, TPZCompMesh* cmesh) {
-  std::cout << "--------- Post Process ---------" << std::endl;
+  std::cout << "--------- PostProcess ---------" << std::endl;
   TPZSimpleTimer postProc("Post processing time");  
   constexpr int vtkRes{0};
   // TPZVec<std::string> fields = {
@@ -544,7 +553,7 @@ void PrintResults(TPZLinearAnalysis& an, TPZCompMesh* cmesh) {
   static auto vtk = TPZVTKGenerator(cmesh, fields, plotfile, vtkRes);
   vtk.SetNThreads(0);
   vtk.Do();
-  std::cout << "Total time = " << postProc.ReturnTimeDouble() / 1000. << " s" << std::endl;
+  PrintTime(postProc,"Postprocess");
 
   return;
 }
