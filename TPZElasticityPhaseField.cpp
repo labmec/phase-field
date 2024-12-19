@@ -1,7 +1,7 @@
 #include "TPZElasticityPhaseField.h"
 #include "pzaxestools.h"
 
-const REAL TPZElasticityPhaseField::eta = 1.0e-4;
+const REAL TPZElasticityPhaseField::eta = 1.0e-8;
 
 TPZElasticityPhaseField::TPZElasticityPhaseField() : TPZRegisterClassId(&TPZElasticityPhaseField::ClassId),
                                                      TPZMatCombinedSpacesT<STATE>(),

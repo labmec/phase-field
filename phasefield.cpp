@@ -57,11 +57,11 @@ enum EMatid { ENone,
               EPtForceX,
               EPtForceY,
               EPtForceXY };
-const int global_nthread = 8;
+const int global_nthread = 32;
 
 REAL pseudotime = 0;
-// const REAL maxdisp = 0.1;
-const REAL maxdisp = 0.05;
+const REAL maxdisp = 0.1;
+// const REAL maxdisp = 0.2;
 auto applied_disp = [](const TPZVec<REAL> &coord, TPZVec<STATE> &rhsVal, TPZFMatrix<STATE> &matVal) {
   rhsVal[0] = 0.0;
   rhsVal[1] = - maxdisp * pseudotime * 1.e11; // Bignumber
@@ -84,7 +84,7 @@ TPZCompMesh* CreatePhaseFieldAtomicMesh(TPZGeoMesh* gmesh, const int pord);
 TPZMultiphysicsCompMesh* CreateElasticityMultiphysicsMesh(TPZManVector<TPZCompMesh*, 2>& mesh_vec, const int pord, const REAL E, const REAL nu);
 TPZMultiphysicsCompMesh* CreatePhaseFieldMultiphysicsMesh(TPZManVector<TPZCompMesh*, 2>& mesh_vec, const int pord, const REAL Gc, const REAL l0);
 
-void SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF);
+bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag);
 void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const int ntimesteps);
 
 void SetPFAndElasMaterialPointer(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF);
@@ -112,23 +112,35 @@ int main() {
   const int whichprob = 1;
 
   int pord = 1;
-  REAL E = 20.8e3, nu = 0.3;
-  REAL Gc = 0.5, l0 = 0.03;  
+  // REAL E = 20.8e3, nu = 0.3;
+  // REAL Gc = 0.5, l0 = 0.03;  
+
+  REAL E = 210, nu = 0.3;
+  REAL Gc = 2.7e-3, l0 = 0.01;  
+
 
   if(whichprob == 1){
-    E = 20.e6;
+    // E = 20.e6;
+    // nu = 0.3;
+    // Gc = 1.0;
+    // l0 = 0.02;
+    E = 20.8;
     nu = 0.3;
-    Gc = 1.0;
+    Gc = 1.0e-3;
     l0 = 0.06;
+
   }
 
   bool isReadFromGmsh = true;
   TPZGeoMesh* gmesh = nullptr;
   if (isReadFromGmsh) {
-    if (whichprob == 0)
+    if (whichprob == 0){
       gmesh = ReadMeshFromGmsh("../gmsh_meshes/3-pt-bending-disp-surf-topmat.msh");
-    else if (whichprob == 1)
-      gmesh = ReadMeshFromGmsh("../gmsh_meshes/bittencourt.msh");
+    }
+    else if (whichprob == 1){
+      // gmesh = ReadMeshFromGmsh("../gmsh_meshes/bittencourt.msh");
+      gmesh = ReadMeshFromGmsh("../gmsh_meshes/bittencourt_quad.msh");
+    }
   } else {
     int ndivx = 25, ndivy = 50;
     gmesh = CreateGMesh(ndivx, ndivy);
@@ -218,22 +230,82 @@ void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF,
   TPZMultiphysicsCompMesh* mp_cmeshElas = dynamic_cast<TPZMultiphysicsCompMesh*>(anElas.Mesh());
   if(!mp_cmeshElas) DebugStop();
   TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshElas->MeshVector(), mp_cmeshElas);
+  
+  REAL stride = 1.0/(ntimesteps);
+  int t = 0, successfull_steps = 0;
+  const REAL minTimeStep = 5.e-4, maxTimeStep = 3*stride;  
+  const REAL maxtolStag = 5.e-5;
+  REAL tolStag = maxtolStag;
+  while (pseudotime <= 1.0) {
+    // if (t > 282){
+    //   stride = minTimeStep;      
+    // }
+    // if (t > 3000){
+    //   break;
+    // }
+    pseudotime = pseudotime + stride;
+    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(5) << pseudotime << " | Time step = " << stride << " ********************" << std::endl;
+    elaspffrac->SetTime(pseudotime);
+    elaspf->SetTime(pseudotime);
+    const bool isConverged = SolveStaggeredProblem(anElas, anPF, tolStag);
+    
+    const bool isMinTimeStep = fabs(stride - minTimeStep) < 1.e-10;
+    std::cout << std::fixed << std::setprecision(4);
 
-  for (int t = 0; t < ntimesteps; t++) {
-    REAL time = (REAL)(t+1) / ntimesteps;
-    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(4) << time << " ********************" << std::endl;
-    elaspffrac->SetTime(time);
-    elaspf->SetTime(time);
-    pseudotime = time;
-    SolveStaggeredProblem(anElas, anPF);
-    // TransferFromMultiBothMeshes(mp_cmeshElas, mp_cmeshPF);
-    PrintResults(anElas, mp_cmeshElas);
+    
+
+    if (!isConverged && !isMinTimeStep) {
+      pseudotime = pseudotime - stride;
+      successfull_steps = 0;
+      stride = stride / 10;
+      if (stride <= minTimeStep) {        
+        stride = minTimeStep;
+        tolStag = 5.e-4;
+        std::cout << "===========> Staggered scheme did not converge. Decreased pseudo time step to minTimeStep = " << minTimeStep << std::endl;
+      }
+      else {
+        std::cout << "===========> Staggered scheme did not converge. Decreased pseudo time step to " << stride << std::endl;
+      }
+    }
+    else { // if it is already the minimum time step, we consider as converged anyway
+      t++;
+      if(successfull_steps > 1){               
+        if(successfull_steps % 2 == 0){
+          tolStag = maxtolStag;       
+          stride = stride * 2;
+          std::cout << "===========> Staggered scheme converging nicely. Trying to double pseudo time step to = " << stride << std::endl;
+        }
+        if (stride > maxTimeStep){
+          stride = maxTimeStep;
+          std::cout << "===========> Staggered scheme converging extremely nicely. Using maxTimeStep = " << maxTimeStep << std::endl;
+        }
+      }
+      if (isConverged){
+        successfull_steps++;
+      }
+      PrintResults(anElas, mp_cmeshElas);
+    } 
   }
+  // for (int t = 0; t < ntimesteps; t++) {
+  //   REAL time = (REAL)(t+1) / ntimesteps;
+  //   std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(4) << time << " ********************" << std::endl;
+  //   elaspffrac->SetTime(time);
+  //   elaspf->SetTime(time);
+  //   pseudotime = time;
+  //   const bool isConverged = SolveStaggeredProblem(anElas, anPF);
+  //   if (!isConverged){
+  //     std::cout << "===========> Staggered scheme did not converge. Decreasing time step." << std::endl;
+  //     break;      
+  //   }
+    
+  //   // TransferFromMultiBothMeshes(mp_cmeshElas, mp_cmeshPF);
+  //   PrintResults(anElas, mp_cmeshElas);
+  // }
 }
 
-void SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF) {
-  const int max_iterations = 50;
-  const REAL tol = 5e-5, tolNormUPF = 1.e-10;
+bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag = 5.e-4) {
+  const int max_iterations = 40;
+  const REAL tolNormUPF = 1.e-8;
   int iteration = 0;
   REAL prevNormUPF = std::numeric_limits<REAL>::max(), currentNormUPF = std::numeric_limits<REAL>::max();
   REAL resElas = std::numeric_limits<REAL>::max();
@@ -261,7 +333,7 @@ void SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF) {
     resElas = Norm(resElasComp);
     std::cout << "Residual Elasticity Norm: " << std::scientific << std::setprecision(2) << resElas << std::endl;
 
-    if(resElas < tol && iteration != 0) {
+    if(resElas < tolStag && iteration != 0) {
       std::cout << "Staggered scheme converged in " << iteration << " iterations." << std::endl;
       break;
     }
@@ -284,10 +356,13 @@ void SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF) {
   }
 
   if (iteration == max_iterations) {
-    std::cout << "WARNING! Maximum number of staggered iterations. Considering as converged and continuing" << std::endl;
-
+    std::cout << "WARNING! Maximum number of staggered iterations." << std::endl;
+    PrintTime(time_stag, "Staggered Iteration");  
+    return false;
   }
+
   PrintTime(time_stag, "Staggered Iteration");  
+  return true;
 
 }
 
