@@ -14,6 +14,9 @@ height = 8
 notch_length = 1
 notch_position = 4
 
+# Element type
+isQuadMesh = True
+
 # Define the circular hole dimensions and position
 hole_radius = 0.25
 hole_center_x = 6
@@ -26,7 +29,7 @@ rectangle = gmsh.model.occ.addRectangle(0, 0, 0, length, height)
 # Fragment the rectangle into three parts
 fragment_points = [
     (3, 0, 0),
-    (8, 0, 0)
+    (7.5, 0, 0)
 ]
 
 # Add points to the model
@@ -35,7 +38,7 @@ fragment_point_tags = [gmsh.model.occ.addPoint(x, y, z) for x, y, z in fragment_
 # Create vertical lines for fragmentation
 fragment_lines = [
     gmsh.model.occ.addLine(fragment_point_tags[0], gmsh.model.occ.addPoint(3, height, 0)),
-    gmsh.model.occ.addLine(fragment_point_tags[1], gmsh.model.occ.addPoint(8, height, 0))
+    gmsh.model.occ.addLine(fragment_point_tags[1], gmsh.model.occ.addPoint(7.5, height, 0))
 ]
 
 # Fragment the rectangle with the vertical lines
@@ -48,7 +51,7 @@ third_rec_tag = recfrag[1][0][2][1]
 gmsh.model.occ.synchronize()
 
 # Create a rectangle starting at (5,0) and ending at (8,2)
-rectangle2 = gmsh.model.occ.addRectangle(5.5, 0, 0, 2.4, 1.5)
+rectangle2 = gmsh.model.occ.addRectangle(5.5, 0, 0, 1.9, 1.5)
 # Merge this rectangle to second_rec_tag
 recfrag2 = gmsh.model.occ.fragment([(2, second_rec_tag)], [(2, rectangle2)])
 first_rec2 = recfrag2[1][0][0][1]
@@ -57,7 +60,7 @@ second_rec2 = recfrag2[1][0][1][1]
 gmsh.model.occ.synchronize()
 
 # Create a rectangle starting at (5,0) and ending at (8,2)
-rectangle3 = gmsh.model.occ.addRectangle(5.0, 7.5, 0, 2.9, 0.5)
+rectangle3 = gmsh.model.occ.addRectangle(5.0, 7.5, 0, 2.4, 0.5)
 # Merge this rectangle to second_rec_tag
 recfrag3 = gmsh.model.occ.fragment([(2, first_rec2)], [(2, rectangle3)])
 first_rec3 = recfrag3[1][0][0][1]
@@ -144,9 +147,9 @@ gmsh.fltk.run()
 # Define a field for mesh refinement
 field_id = gmsh.model.mesh.field.add("Box")
 gmsh.model.mesh.field.setNumber(field_id, "VIn", 0.03)  # Target mesh size inside the box
-gmsh.model.mesh.field.setNumber(field_id, "VOut", 1)   # Target mesh size outside the box
+gmsh.model.mesh.field.setNumber(field_id, "VOut", 1.25)   # Target mesh size outside the box
 gmsh.model.mesh.field.setNumber(field_id, "XMin", 3)
-gmsh.model.mesh.field.setNumber(field_id, "XMax", 8)
+gmsh.model.mesh.field.setNumber(field_id, "XMax", 7.5)
 gmsh.model.mesh.field.setNumber(field_id, "YMin", 0)
 gmsh.model.mesh.field.setNumber(field_id, "YMax", height)
 gmsh.model.mesh.field.setNumber(field_id, "ZMin", 0)
@@ -155,6 +158,11 @@ gmsh.model.mesh.field.setNumber(field_id, "ZMax", 0)
 # Set the mesh size field as the background mesh field
 gmsh.model.mesh.field.setAsBackgroundMesh(field_id)
 
+# Set the mesh algorithm to use quadrilateral elements
+if isQuadMesh == True:
+    gmsh.option.setNumber("Mesh.Algorithm", 8)
+    gmsh.option.setNumber("Mesh.RecombineAll", 1)
+
 # Generate the mesh
 gmsh.model.mesh.generate(2)
 
@@ -162,7 +170,10 @@ gmsh.model.mesh.generate(2)
 gmsh.fltk.run()
 
 # Save the mesh to a file
-gmsh.write("bittencourt.msh")
+if isQuadMesh == True:
+    gmsh.write("bittencourt_quad.msh")
+else:
+    gmsh.write("bittencourt.msh")
 
 # Finalize gmsh
 gmsh.finalize()
