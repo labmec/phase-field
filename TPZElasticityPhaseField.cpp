@@ -1,7 +1,7 @@
 #include "TPZElasticityPhaseField.h"
 #include "pzaxestools.h"
 
-const REAL TPZElasticityPhaseField::eta = 1.0e-8;
+
 
 TPZElasticityPhaseField::TPZElasticityPhaseField() : TPZRegisterClassId(&TPZElasticityPhaseField::ClassId),
                                                      TPZMatCombinedSpacesT<STATE>(),
@@ -52,8 +52,8 @@ void TPZElasticityPhaseField::Contribute(const TPZVec<TPZMaterialDataT<STATE>> &
   const STATE pf = datavec[1].sol[0][0];
 
   // Multiply temp_ek by cte and add to ek
-  const REAL cte = eta + pf*pf;
-  temp_ek *= cte;
+  const REAL g = fPhaseFieldMat->DegradationFunc(pf);
+  temp_ek *= g;
   ek += temp_ek;
 
 }

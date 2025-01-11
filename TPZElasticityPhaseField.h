@@ -180,10 +180,6 @@ class TPZElasticityPhaseField : public TPZElasticity2D, public TPZMatCombinedSpa
 protected:
   TPZPhaseField* fPhaseFieldMat;
 
-  /// Parameter small as possible that enters in the equilibrium eq for numerical stability, namely:
-  /// div( (z^2 + eta) Sigma_ij ) + b = 0
-  static const REAL eta;  
-
   /// Current time normalized between 0 and 1. Used for incremental displacement
   REAL fTime = 0.;
 

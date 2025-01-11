@@ -60,8 +60,8 @@ enum EMatid { ENone,
 const int global_nthread = 32;
 
 REAL pseudotime = 0;
-const REAL maxdisp = 0.1;
-// const REAL maxdisp = 0.2;
+// const REAL maxdisp = 0.1;
+const REAL maxdisp = 0.25;
 auto applied_disp = [](const TPZVec<REAL> &coord, TPZVec<STATE> &rhsVal, TPZFMatrix<STATE> &matVal) {
   rhsVal[0] = 0.0;
   rhsVal[1] = - maxdisp * pseudotime * 1.e11; // Bignumber
@@ -84,11 +84,13 @@ TPZCompMesh* CreatePhaseFieldAtomicMesh(TPZGeoMesh* gmesh, const int pord);
 TPZMultiphysicsCompMesh* CreateElasticityMultiphysicsMesh(TPZManVector<TPZCompMesh*, 2>& mesh_vec, const int pord, const REAL E, const REAL nu);
 TPZMultiphysicsCompMesh* CreatePhaseFieldMultiphysicsMesh(TPZManVector<TPZCompMesh*, 2>& mesh_vec, const int pord, const REAL Gc, const REAL l0);
 
-bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag);
+const int SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag, const int max_iterations);
 void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const int ntimesteps);
 
 void SetPFAndElasMaterialPointer(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF);
 void TransferFromMultiBothMeshes(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF);
+
+void InitializeSolutionVectors(TPZLinearAnalysis& anPF, TPZLinearAnalysis& anElas, TPZMatrix<STATE>& UPF, TPZMatrix<STATE>& UElas);
 
 void PrintTime(TPZSimpleTimer& timer, const std::string& message) {
   double postProcTime = timer.ReturnTimeDouble() / 1000.0;
@@ -123,12 +125,11 @@ int main() {
     // E = 20.e6;
     // nu = 0.3;
     // Gc = 1.0;
-    // l0 = 0.02;
+    // l0 = 0.12;
     E = 20.8;
     nu = 0.3;
     Gc = 1.0e-3;
-    l0 = 0.06;
-
+    l0 = 0.05;
   }
 
   bool isReadFromGmsh = true;
@@ -165,7 +166,7 @@ int main() {
   mesh_vec[1] = cmeshPF;
   // TPZMultiphysicsCompMesh* mpmesh = CreateMultiphysicsMesh(mesh_vec, pord);
   TPZMultiphysicsCompMesh* mp_cmeshElas = CreateElasticityMultiphysicsMesh(mesh_vec, pord, E, nu);
-  TPZMultiphysicsCompMesh* mp_cmeshPF = CreatePhaseFieldMultiphysicsMesh(mesh_vec, pord, Gc, nu);
+  TPZMultiphysicsCompMesh* mp_cmeshPF = CreatePhaseFieldMultiphysicsMesh(mesh_vec, pord, Gc, l0);
   SetPFAndElasMaterialPointer(mp_cmeshElas, mp_cmeshPF);
   // matelas->SetPhaseFieldMaterial(matpf);
   // matpf->SetElasticityMaterial(matelas);
@@ -214,45 +215,38 @@ void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF,
     DebugStop();
   }
 
-  // Initialize solution vector of anPF with 1 and anElas with 0
+
+  // Initialize solution vector of anPF with 0 and anElas with 0
   TPZFMatrix<STATE> UPF = anPF.Solution();
-  UPF = 1.;
-  anPF.LoadSolution(UPF);
-  // Update atomic meshes solution in multiphysics cmesh of anPF
-  TPZMultiphysicsCompMesh* mp_cmeshPF = dynamic_cast<TPZMultiphysicsCompMesh*>(anPF.Mesh());
-  if(!mp_cmeshPF) DebugStop();
-  TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshPF->MeshVector(), mp_cmeshPF);
-  
+  UPF = 0.;
   TPZFMatrix<STATE> UElas = anElas.Solution();
   UElas.Zero();
-  anElas.LoadSolution(UElas);
-  // Update atomic meshes solution in multiphysics cmesh of anElas
+  InitializeSolutionVectors(anPF, anElas, UPF, UElas);
+  
   TPZMultiphysicsCompMesh* mp_cmeshElas = dynamic_cast<TPZMultiphysicsCompMesh*>(anElas.Mesh());
-  if(!mp_cmeshElas) DebugStop();
-  TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshElas->MeshVector(), mp_cmeshElas);
   
   REAL stride = 1.0/(ntimesteps);
   int t = 0, successfull_steps = 0;
-  const REAL minTimeStep = 5.e-4, maxTimeStep = 3*stride;  
-  const REAL maxtolStag = 5.e-5;
+  const REAL minTimeStep = 1.e-6, maxTimeStep = stride*0.9999;  
+  const REAL maxtolStag = 1.e-5;
+  const REAL mintolStag = 5.e-5;
   REAL tolStag = maxtolStag;
   while (pseudotime <= 1.0) {
-    // if (t > 282){
-    //   stride = minTimeStep;      
-    // }
-    // if (t > 3000){
-    //   break;
-    // }
+    
+    // Save the current solution in case it does not converge
+    TPZFMatrix<STATE> UElasPrev = anElas.Solution();
+    TPZFMatrix<STATE> UPFPrev = anPF.Solution();
+
     pseudotime = pseudotime + stride;
-    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(5) << pseudotime << " | Time step = " << stride << " ********************" << std::endl;
+    std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(6) << pseudotime << " | Time step = " << stride << " ********************" << std::endl;
     elaspffrac->SetTime(pseudotime);
     elaspf->SetTime(pseudotime);
-    const bool isConverged = SolveStaggeredProblem(anElas, anPF, tolStag);
+    const int max_iterations = 50;
+    const int nIter = SolveStaggeredProblem(anElas, anPF, tolStag, max_iterations);
+    const bool isConverged = nIter < max_iterations;
     
     const bool isMinTimeStep = fabs(stride - minTimeStep) < 1.e-10;
-    std::cout << std::fixed << std::setprecision(4);
-
-    
+    std::cout << std::fixed << std::setprecision(6);    
 
     if (!isConverged && !isMinTimeStep) {
       pseudotime = pseudotime - stride;
@@ -260,51 +254,49 @@ void SolveIncrementalProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF,
       stride = stride / 10;
       if (stride <= minTimeStep) {        
         stride = minTimeStep;
-        tolStag = 5.e-4;
+        tolStag = mintolStag;
         std::cout << "===========> Staggered scheme did not converge. Decreased pseudo time step to minTimeStep = " << minTimeStep << std::endl;
       }
       else {
         std::cout << "===========> Staggered scheme did not converge. Decreased pseudo time step to " << stride << std::endl;
       }
+      InitializeSolutionVectors(anPF, anElas, UPFPrev, UElasPrev);
     }
     else { // if it is already the minimum time step, we consider as converged anyway
       t++;
-      if(successfull_steps > 1){               
-        if(successfull_steps % 2 == 0){
-          tolStag = maxtolStag;       
-          stride = stride * 2;
-          std::cout << "===========> Staggered scheme converging nicely. Trying to double pseudo time step to = " << stride << std::endl;
-        }
-        if (stride > maxTimeStep){
-          stride = maxTimeStep;
-          std::cout << "===========> Staggered scheme converging extremely nicely. Using maxTimeStep = " << maxTimeStep << std::endl;
-        }
-      }
       if (isConverged){
         successfull_steps++;
+      }
+      if (nIter < 20){
+        if(successfull_steps > 2){               
+          if(successfull_steps % 2 == 0){
+            tolStag = maxtolStag;       
+            stride = stride * 2;
+            std::cout << "===========> Staggered scheme converging nicely. Trying to double pseudo time step to = " << stride << std::endl;
+          }
+          if (stride > maxTimeStep){
+            stride = maxTimeStep;
+            std::cout << "===========> Staggered scheme converging extremely nicely. Using maxTimeStep = " << maxTimeStep << std::endl;
+          }
+        }
+      }
+      else if (nIter < 40) {
+        successfull_steps = 0;
+      }
+      else {
+        successfull_steps = 0;
+        stride = stride / 2;
+        if (stride < minTimeStep) {
+          stride = minTimeStep;
+        }
+        std::cout << "===========> Staggered scheme took " << nIter << " iterations to converge. Decreased pseudo time step to " << stride << std::endl;
       }
       PrintResults(anElas, mp_cmeshElas);
     } 
   }
-  // for (int t = 0; t < ntimesteps; t++) {
-  //   REAL time = (REAL)(t+1) / ntimesteps;
-  //   std::cout << "******************** Time Step " << t << " | Pseudo time = " << std::fixed << std::setprecision(4) << time << " ********************" << std::endl;
-  //   elaspffrac->SetTime(time);
-  //   elaspf->SetTime(time);
-  //   pseudotime = time;
-  //   const bool isConverged = SolveStaggeredProblem(anElas, anPF);
-  //   if (!isConverged){
-  //     std::cout << "===========> Staggered scheme did not converge. Decreasing time step." << std::endl;
-  //     break;      
-  //   }
-    
-  //   // TransferFromMultiBothMeshes(mp_cmeshElas, mp_cmeshPF);
-  //   PrintResults(anElas, mp_cmeshElas);
-  // }
 }
 
-bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag = 5.e-4) {
-  const int max_iterations = 40;
+const int SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, const REAL tolStag = 5.e-4, const int max_iterations = 300) {
   const REAL tolNormUPF = 1.e-8;
   int iteration = 0;
   REAL prevNormUPF = std::numeric_limits<REAL>::max(), currentNormUPF = std::numeric_limits<REAL>::max();
@@ -347,10 +339,10 @@ bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, c
     const REAL varUPFNorm = fabs(currentNormUPF - prevNormUPF);
     if (iteration != 0)
       std::cout << "Variation on the norm of the phase field solution: " << std::scientific << std::setprecision(2) << varUPFNorm << std::endl;
-    if(varUPFNorm < tolNormUPF) {
-      std::cout << "Solution is not changing anymore. Stopping the staggered iterations and considering converged at iteration " << iteration << std::endl;
-      break;
-    }
+    // if(varUPFNorm < tolNormUPF) {
+    //   std::cout << "Solution is not changing anymore. Stopping the staggered iterations and considering converged at iteration " << iteration << std::endl;
+    //   break;
+    // }
     prevNormUPF = currentNormUPF;
     TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshElas->MeshVector(), mp_cmeshElas);
   }
@@ -358,11 +350,11 @@ bool SolveStaggeredProblem(TPZLinearAnalysis& anElas, TPZLinearAnalysis& anPF, c
   if (iteration == max_iterations) {
     std::cout << "WARNING! Maximum number of staggered iterations." << std::endl;
     PrintTime(time_stag, "Staggered Iteration");  
-    return false;
+    return iteration;
   }
 
   PrintTime(time_stag, "Staggered Iteration");  
-  return true;
+  return iteration;
 
 }
 
@@ -427,7 +419,7 @@ TPZMultiphysicsCompMesh* CreatePhaseFieldMultiphysicsMesh(TPZManVector<TPZCompMe
   mp_cmesh->SetAllCreateFunctionsMultiphysicElem();
 
   // Create the TPZPhaseField material for the region without fracture
-  const REAL c0 = -1.0; // not being used yet
+  const REAL c0 = 2.0; // not being used yet
   const REAL GcBig = Gc * 1000.;
   TPZPhaseField* mat = new TPZPhaseField(EDomain, gmesh->Dimension(), GcBig, l0, c0);
   mp_cmesh->InsertMaterialObject(mat);
@@ -626,7 +618,7 @@ void PrintResults(TPZLinearAnalysis& an, TPZCompMesh* cmesh) {
       "Stress",
       "PhaseField"};
   static auto vtk = TPZVTKGenerator(cmesh, fields, plotfile, vtkRes);
-  vtk.SetNThreads(0);
+  vtk.SetNThreads(global_nthread);
   vtk.Do();
   PrintTime(postProc,"Postprocess");
 
@@ -733,4 +725,19 @@ void SetPFAndElasMaterialPointer(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMulti
 
 void TransferFromMultiBothMeshes(TPZMultiphysicsCompMesh* mp_cmeshElas, TPZMultiphysicsCompMesh* mp_cmeshPF) {
 
+}
+
+void InitializeSolutionVectors(TPZLinearAnalysis& anPF, TPZLinearAnalysis& anElas, TPZMatrix<STATE>& UPF, TPZMatrix<STATE>& UElas) {
+  // Initialize solution vector of anPF with 0 and anElas with 0
+  anPF.LoadSolution(UPF);
+  // Update atomic meshes solution in multiphysics cmesh of anPF
+  TPZMultiphysicsCompMesh* mp_cmeshPF = dynamic_cast<TPZMultiphysicsCompMesh*>(anPF.Mesh());
+  if(!mp_cmeshPF) DebugStop();
+  TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshPF->MeshVector(), mp_cmeshPF);
+  
+  anElas.LoadSolution(UElas);
+  // Update atomic meshes solution in multiphysics cmesh of anElas
+  TPZMultiphysicsCompMesh* mp_cmeshElas = dynamic_cast<TPZMultiphysicsCompMesh*>(anElas.Mesh());
+  if(!mp_cmeshElas) DebugStop();
+  TPZBuildMultiphysicsMesh::TransferFromMultiPhysics(mp_cmeshElas->MeshVector(), mp_cmeshElas);
 }

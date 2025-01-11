@@ -1,5 +1,5 @@
-#ifndef TPZPhaseFieldaa_H
-#define TPZPhaseFieldaa_H
+#ifndef TPZPhaseField_H
+#define TPZPhaseField_H
 
 #include "DarcyFlow/TPZIsotropicPermeability.h"
 #include "TPZMatBase.h"
@@ -149,6 +149,15 @@ class TPZPhaseField : public TPZMatBase<STATE, TPZMatCombinedSpacesT<STATE>,
    */
   void Print(std::ostream &out) const override;
 
+  const STATE DegradationFunc(const STATE pf) const;
+
+  /**
+   * @brief Returns the value of eta
+   */
+  const REAL GetEta() const {
+    return eta;
+  }  
+
  protected:
   /**
    * @brief Problem dimension
@@ -163,6 +172,10 @@ class TPZPhaseField : public TPZMatBase<STATE, TPZMatCombinedSpacesT<STATE>,
 
   /// Crack densisty function constant
   STATE fc0;
+
+  /// Parameter small as possible that enters in the equilibrium eq for numerical stability, namely:
+  /// div( (z^2 + eta) Sigma_ij ) + b = 0
+  static const REAL eta;    
 
   /// Elasticity material
   TPZElasticityPhaseField* fElasMat;

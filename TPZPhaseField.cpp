@@ -2,6 +2,10 @@
 #include "TPZMaterialDataT.h"
 #include "pzaxestools.h"
 
+const REAL TPZPhaseField::eta = 1.0e-8;
+
+const bool oldWay = false;
+
 TPZPhaseField::TPZPhaseField() : TPZRegisterClassId(&TPZPhaseField::ClassId),
                                  TBase(),
                                  fDim(-1) {}
@@ -32,6 +36,7 @@ void TPZPhaseField::Contribute(const TPZVec<TPZMaterialDataT<STATE>> &datavec, R
                                TPZFMatrix<STATE> &ef) {
   const STATE Gc = fGc;
   const STATE l0 = fl0;
+  const STATE c0 = fc0;
 
   // Setting the phis
   TPZFMatrix<REAL> &phi = datavec[0].phi;
@@ -47,14 +52,24 @@ void TPZPhaseField::Contribute(const TPZVec<TPZMaterialDataT<STATE>> &datavec, R
       nactive++;
     }
   }
-  STATE sigmaDotEps = fElasMat->CalculateSigmaDotEps(datavec[0]);
-
-  // Calculate the matrix contribution for flux. Matrix A
-  for (int i = 0; i < phr; i++) {
-    ef(i,0) += (1.) * weight * ( (Gc/ l0 ) * phi(i) );
-    for (int j = 0; j < phr; j++) {
-      ek(i, j) += (-1.) * weight * (- Gc * l0 * (dphi(0,i) * dphi(0,j) + dphi(1,i) * dphi(1,j) ) + (- sigmaDotEps * phi(j) - Gc/l0 * phi(j) ) * phi(i) );
+  const STATE sigmaDotEps = fElasMat->CalculateSigmaDotEps(datavec[0]);
+  const STATE elasEnergy = sigmaDotEps * 0.5;
+  
+  if(oldWay){
+    for (int i = 0; i < phr; i++) {
+      ef(i,0) += weight * ( (Gc/ l0 ) * phi(i) );
+      for (int j = 0; j < phr; j++) {
+        ek(i, j) += weight * (Gc * l0 * (dphi(0,i) * dphi(0,j) + dphi(1,i) * dphi(1,j) ) + (sigmaDotEps  + Gc/l0) * phi(i) * phi(j) );
+      }
     }
+  } 
+  else {
+    for (int i = 0; i < phr; i++) {
+      ef(i,0) += (1.) * weight * elasEnergy * phi(i);
+      for (int j = 0; j < phr; j++) {
+        ek(i, j) += weight * (Gc * l0 / c0 * (dphi(0,i) * dphi(0,j) + dphi(1,i) * dphi(1,j) ) + (Gc/(c0*l0) + elasEnergy ) * phi(j) * phi(i) );
+      }
+    }        
   }
 }
 
@@ -142,5 +157,16 @@ void TPZPhaseField::FillBoundaryConditionDataRequirements(int type, TPZVec<TPZMa
     for (int iref = 0; iref < nref; iref++) {
       datavec[iref].fNeedsSol = false;
     }
+  }
+}
+
+const STATE TPZPhaseField::DegradationFunc(const STATE pf) const {
+  int type = 1;
+  if(oldWay) type = 0;
+  if(type == 0){
+    return pf*pf + eta;
+  }
+  else{
+    return (1. - pf)*(1. - pf) + eta;
   }
 }
